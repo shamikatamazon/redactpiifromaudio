@@ -1,0 +1,166 @@
+{
+	"AWSTemplateFormatVersion": "2010-09-09",
+	"Transform": "AWS::Serverless-2016-10-31",
+	"Parameters": {
+		"SourceS3": {
+			"Type": "String",
+			"Default": "redactaudiosource",
+			"Description": "The source bucket for unredacted content"
+		},
+		"TargetS3": {
+			"Type": "String",
+			"Default": "redactaudiotarget",
+			"Description": "The target bucket for redacted content"
+		}
+	},
+	"Resources": {
+		"OutputS3Bucket": {
+			"Type": "AWS::S3::Bucket",
+			"Properties": {
+				"BucketName": {
+					"Ref": "TargetS3"
+				},
+				"OwnershipControls": {
+					"Rules": [{
+						"ObjectOwnership": "BucketOwnerEnforced"
+					}]
+				}
+			}
+		},
+		"InputS3Bucket": {
+			"Type": "AWS::S3::Bucket",
+			"Properties": {
+				"BucketName": {
+					"Ref": "SourceS3"
+				},
+				"OwnershipControls": {
+					"Rules": [{
+						"ObjectOwnership": "BucketOwnerEnforced"
+					}]
+				},
+				"NotificationConfiguration": {
+					"LambdaConfigurations": [{
+						"Event": "s3:ObjectCreated:*",
+						"Function": {
+							"Fn::GetAtt": ["TranscribeFunction", "Arn"]
+						}
+					}]
+				}
+			}
+		},
+		"InputBucketS3Permission": {
+			"Type": "AWS::Lambda::Permission",
+			"Properties": {
+				"Action": "lambda:InvokeFunction",
+				"FunctionName": {
+					"Ref": "TranscribeFunction"
+				},
+				"Principal": "s3.amazonaws.com",
+				"SourceAccount": {
+					"Ref": "AWS::AccountId"
+				},
+				"SourceArn": {
+					"Fn::GetAtt": ["InputS3Bucket", "Arn"]
+				}
+			}
+
+		},
+		"TranscribeFunction": {
+			"Type": "AWS::Lambda::Function",
+			"Properties": {
+				"Timeout": 900,
+				"FunctionName": "triggerTranscribe",
+				"Handler": "index.handler",
+				"Role": {
+					"Fn::GetAtt": ["TranscribeLambdaRole", "Arn"]
+				},
+				"Code": {
+					"S3Bucket": "transcribelambdacode",
+					"S3Key": "TranscribeFunctionCode"
+				},
+				"Runtime": "python3.6",
+				"MemorySize": 10240,
+				"Environment": {
+					"Variables": {
+						"sourceS3": {
+							"Ref": "SourceS3"
+						},
+						"targetS3": {
+							"Ref": "TargetS3"
+						}
+					}
+				},
+				"Layers": [{
+					"Ref": "ffmpeglib"
+				}]
+			}
+		},
+		"ffmpeglib": {
+			"Type": "AWS::Serverless::LayerVersion",
+			"Properties": {
+				"LayerName": "ffmpegLayer",
+				"ContentUri": "s3://transcribelambdacode/ffmpeg.zip",
+				"CompatibleRuntimes": [
+					"python3.6"
+				]
+			}
+		},
+		"TranscribeLambdaRole": {
+			"Type": "AWS::IAM::Role",
+			"Properties": {
+				"RoleName": "TranscribeLambdaRole",
+				"AssumeRolePolicyDocument": {
+					"Version": "2012-10-17",
+					"Statement": [{
+						"Effect": "Allow",
+						"Principal": {
+							"Service": ["lambda.amazonaws.com"]
+						},
+						"Action": ["sts:AssumeRole"]
+					}]
+				},
+				"Path": "/",
+				"Policies": [{
+						"PolicyName": "AWSLambdaBasicExecutionRole",
+						"PolicyDocument": {
+							"Version": "2012-10-17",
+							"Statement": [{
+								"Effect": "Allow",
+								"Action": [
+									"logs:CreateLogGroup",
+									"logs:CreateLogStream",
+									"logs:PutLogEvents"
+								],
+								"Resource": "*"
+							}]
+						}
+					},
+					{
+						"PolicyName": "AmazonS3FullAccess",
+						"PolicyDocument": {
+							"Version": "2012-10-17",
+							"Statement": [{
+								"Effect": "Allow",
+								"Action": "s3:*",
+								"Resource": [
+									"arn:aws:s3:::*"
+								]
+							}]
+						}
+					},
+					{
+						"PolicyName": "AmazonTranscribeFullAccess",
+						"PolicyDocument": {
+							"Version": "2012-10-17",
+							"Statement": [{
+								"Effect": "Allow",
+								"Action": "transcribe:*",
+								"Resource": "*"
+							}]
+						}
+					}
+				]
+			}
+		}
+	}
+}
