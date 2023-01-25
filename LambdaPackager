@@ -1,20 +1,37 @@
 #! /bin/bash
 
-pip3 install --target .transcribeLambda/package requests
-pip3 install --target .transcribeLambda/package boto3
-pip3 install --target .transcribeLambda/package shlex
-pip3 install --target .transcribeLambda/package subprocess
-pip3 install --target .transcribeLambda/package os
-pip3 install --target .transcribeLambda/package json
-cd transcribeLambda/package/
+mkdir packages
+pip3 install --target packages/ requests
+pip3 install --target packages/ boto3
+pip3 install --target packages/ shlex
+pip3 install --target packages/ subprocess
+pip3 install --target packages/ os
+pip3 install --target packages/ json
+cd packages
+
 zip -r ../my-deployment-package.zip .
+zip -r ../g729Convert.zip .
+
 cd ..
-zip -g my-deployment-package.zip index.py 
+cd transcribeLambda/
+zip -g ../my-deployment-package.zip index.py 
+cd ..
+cd g729convertLambda/
+zip -g ../g729Convert.zip index.py 
+
+cd ..
+
 aws s3api put-object --bucket transcribelambdacode --key TranscribeFunctionCode --region us-west-2 --body ./my-deployment-package.zip
-rm my-deployment-package.zip
-cd ..
+aws s3api put-object --bucket transcribelambdacode --key g729convertLambdaCode --region us-west-2 --body ./g729Convert.zip
+
+
 aws s3api put-object --bucket transcribelambdacode --key ffmpeg.zip --region us-west-2 --body ./ffmpeg.zip
 
 #aws s3api put-object --bucket transcribelambdacode --key cloudformationStackTemplate.json --region us-west-2 --body ./audioTranscribeTemplate
 aws cloudformation deploy --stack-name redactpii --template-file audioTranscribeTemplate.json --s3-bucket transcribelambdacode --s3-prefix templates --region us-west-2 --capabilities CAPABILITY_NAMED_IAM
 aws lambda update-function-code --function-name triggerTranscribe --s3-bucket transcribelambdacode --s3-key TranscribeFunctionCode
+aws lambda update-function-code --function-name convertg729AndTranscribe --s3-bucket transcribelambdacode --s3-key g729convertLambdaCode
+
+rm -r packages/
+rm g729Convert.zip
+rm my-deployment-package.zip

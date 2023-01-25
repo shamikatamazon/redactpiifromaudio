@@ -11,6 +11,16 @@
 			"Type": "String",
 			"Default": "redactaudiotarget",
 			"Description": "The target bucket for redacted content"
+		},
+		"ConversionTargetS3": {
+			"Type": "String",
+			"Default": "conversiong729output1",
+			"Description": "The target bucket for converted content"
+		},
+		"ConversionSourceS3": {
+			"Type": "String",
+			"Default": "conversiong729input1",
+			"Description": "The target bucket for converted content"
 		}
 	},
 	"Resources": {
@@ -19,6 +29,19 @@
 			"Properties": {
 				"BucketName": {
 					"Ref": "TargetS3"
+				},
+				"OwnershipControls": {
+					"Rules": [{
+						"ObjectOwnership": "BucketOwnerEnforced"
+					}]
+				}
+			}
+		},
+		"ConversionOutputS3Bucket": {
+			"Type": "AWS::S3::Bucket",
+			"Properties": {
+				"BucketName": {
+					"Ref": "ConversionTargetS3"
 				},
 				"OwnershipControls": {
 					"Rules": [{
@@ -65,6 +88,44 @@
 			}
 
 		},
+		"ConversationInputBucketS3Permission": {
+			"Type": "AWS::Lambda::Permission",
+			"Properties": {
+				"Action": "lambda:InvokeFunction",
+				"FunctionName": {
+					"Ref": "g729ConvertFunction"
+				},
+				"Principal": "s3.amazonaws.com",
+				"SourceAccount": {
+					"Ref": "AWS::AccountId"
+				},
+				"SourceArn": {
+					"Fn::GetAtt": ["ConversionInputS3Bucket", "Arn"]
+				}
+			}
+
+		},
+		"ConversionInputS3Bucket": {
+			"Type": "AWS::S3::Bucket",
+			"Properties": {
+				"BucketName": {
+					"Ref": "ConversionSourceS3"
+				},
+				"OwnershipControls": {
+					"Rules": [{
+						"ObjectOwnership": "BucketOwnerEnforced"
+					}]
+				},
+				"NotificationConfiguration": {
+					"LambdaConfigurations": [{
+						"Event": "s3:ObjectCreated:*",
+						"Function": {
+							"Fn::GetAtt": ["g729ConvertFunction", "Arn"]
+						}
+					}]
+				}
+			}
+		},
 		"TranscribeFunction": {
 			"Type": "AWS::Lambda::Function",
 			"Properties": {
@@ -78,7 +139,7 @@
 					"S3Bucket": "transcribelambdacode",
 					"S3Key": "TranscribeFunctionCode"
 				},
-				"Runtime": "python3.6",
+				"Runtime": "python3.9",
 				"MemorySize": 10240,
 				"Environment": {
 					"Variables": {
@@ -101,7 +162,7 @@
 				"LayerName": "ffmpegLayer",
 				"ContentUri": "s3://transcribelambdacode/ffmpeg.zip",
 				"CompatibleRuntimes": [
-					"python3.6"
+					"python3.9"
 				]
 			}
 		},
@@ -160,6 +221,33 @@
 						}
 					}
 				]
+			}
+		},
+		"g729ConvertFunction": {
+			"Type": "AWS::Lambda::Function",
+			"Properties": {
+				"Timeout": 900,
+				"FunctionName": "convertg729AndTranscribe",
+				"Handler": "index.handler",
+				"Role": {
+					"Fn::GetAtt": ["TranscribeLambdaRole", "Arn"]
+				},
+				"Code": {
+					"S3Bucket": "transcribelambdacode",
+					"S3Key": "g729convertLambdaCode"
+				},
+				"Runtime": "python3.9",
+				"MemorySize": 10240,
+				"Environment": {
+					"Variables": {
+						"targetS3": {
+							"Ref": "ConversionTargetS3"
+						}
+					}
+				},
+				"Layers": [{
+					"Ref": "ffmpeglib"
+				}]
 			}
 		}
 	}
